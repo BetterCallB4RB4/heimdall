@@ -8,10 +8,9 @@ import (
 )
 
 var AwsCmd = &cobra.Command{
-	Use:   "aws [profile]",
+	Use:   "aws",
 	Short: "AWS helpers (select profile or run subcommands)",
-	Long:  "Run `aws <profile>` to select a profile, or use subcommands like `aws gen`, `aws login`.",
-	Args:  cobra.MaximumNArgs(1),
+	Long:  "Manage AWS profiles, SSO sessions, and EKS kubeconfig files.",
 	Run:   func(cmd *cobra.Command, args []string) { _ = cmd.Help() },
 }
 

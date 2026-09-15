@@ -9,7 +9,7 @@ import (
 )
 
 var GenerateAwsSsoProfileCmd = &cobra.Command{
-	Use:   "ssoProfile",
+	Use:   "ssoProfile [sso-session]",
 	Short: "Generate ~/.aws/config profiles from all SSO accounts",
 	Long:  "Authenticate an SSO session, list all accessible accounts, and write a named profile block for each one into ~/.aws/config.",
 	Run: func(cmd *cobra.Command, args []string) {

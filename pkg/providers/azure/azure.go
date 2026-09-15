@@ -289,7 +289,7 @@ func azLoginWithUI(cmd *exec.Cmd, boxTitle string, extraFields [][2]string) erro
 // triggerInitialLogin runs az login (browser SSO) using the global ~/.azure/
 // directory, regardless of any per-tenant AZURE_CONFIG_DIR in the process env.
 // This bootstrap is tenant-agnostic: we just need a valid token so that
-// fetchTenants() can list all tenants for the fzf picker.
+// fetchTenants() can list all tenants for the interactive picker.
 // core.login_experience_v2=off is written to the global config so the az
 // login command never shows the built-in interactive subscription/tenant table.
 func triggerInitialLogin() error {
@@ -304,7 +304,7 @@ func triggerInitialLogin() error {
 	return azLoginWithUI(cmd, "Azure Login", nil)
 }
 
-// SelectTenantAndLogin presents an fzf tenant picker, computes the per-tenant
+// SelectTenantAndLogin presents a tenant picker, computes the per-tenant
 // config directory, sets AZURE_CONFIG_DIR in the current process (so every
 // subsequent az exec inherits it), and runs az login --tenant scoped to that dir.
 // Returns the config dir path so the caller can export it to the parent shell.
@@ -411,6 +411,24 @@ func GetCurrentTenantID() string {
 	return account.TenantID
 }
 
+// GetActiveSubscription returns the Azure subscription active in the current
+// AZURE_CONFIG_DIR without changing authentication or subscription state.
+func GetActiveSubscription() (AzureSubscription, error) {
+	cmd := exec.Command("az", "account", "show", "--output", "json", "--only-show-errors")
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return AzureSubscription{}, fmt.Errorf("az account show: %v (%s)", err, strings.TrimSpace(errBuf.String()))
+	}
+
+	var subscription AzureSubscription
+	if err := json.Unmarshal(out.Bytes(), &subscription); err != nil {
+		return AzureSubscription{}, fmt.Errorf("parse active Azure subscription: %w", err)
+	}
+	return subscription, nil
+}
+
 // ListAzureSubscriptionsByTenant fetches all subscriptions for the given
 // tenantID directly from the ARM API, scoped to that tenant.
 func ListAzureSubscriptionsByTenant(tenantID string) ([]AzureSubscription, error) {
@@ -445,7 +463,7 @@ func SetAzureSubscription(selectedAccount AzureSubscription) {
 	}
 }
 
-// SelectAndSetSubscription presents an fzf subscription picker for the given
+// SelectAndSetSubscription presents a subscription picker for the given
 // tenantID, sets it as the active subscription in the current AZURE_CONFIG_DIR,
 // and returns the chosen subscription. It is shared between az login and az select.
 func SelectAndSetSubscription(tenantID string) (AzureSubscription, error) {
@@ -824,7 +842,7 @@ func getDefaultSubscriptionFromDir(dir string) (tenantName, subName string) {
 // PickExistingTenantSession scans ~/.azure-*/ directories for ones that
 // already hold a valid az session (checked with isSessionValidInDir).
 // If exactly one is found it is returned directly.
-// If multiple are found the user picks via fzf; labels show the tenant
+// If multiple are found the user picks interactively; labels show the tenant
 // display name and the currently active subscription so the choice is clear.
 // Returns an error when no valid session exists in any per-tenant dir.
 func PickExistingTenantSession() (string, error) {

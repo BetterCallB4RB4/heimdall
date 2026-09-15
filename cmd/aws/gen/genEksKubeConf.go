@@ -12,7 +12,7 @@ import (
 var GenEksKubeConfCmd = &cobra.Command{
 	Use:   "kubeConf",
 	Short: "Write a kubeconfig for an EKS cluster (all regions scan)",
-	Long:  "Scans all AWS regions in parallel for EKS clusters, presents an fzf picker, then runs aws eks update-kubeconfig for the selected cluster.",
+	Long:  "Scans all AWS regions in parallel for EKS clusters, presents an interactive picker, then runs aws eks update-kubeconfig for the selected cluster.",
 	Run: func(cmd *cobra.Command, args []string) {
 		clusterToRegion := aws.ListEKSClustersByRegion("")
 
@@ -23,7 +23,7 @@ var GenEksKubeConfCmd = &cobra.Command{
 		}
 		sort.Strings(entries)
 
-		// Use fzf to select an entry and extract the cluster name.
+		// Use the interactive picker to select an entry and extract the cluster name.
 		selected := ui.GetSelection(entries...)
 		if selected == "" {
 			return
