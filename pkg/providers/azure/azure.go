@@ -559,6 +559,13 @@ const aksServerID = "6dae42f8-4368-4678-94ff-3960e28e3630"
 // Used to probe and refresh management-plane tokens.
 const managementResourceID = "https://management.core.windows.net/"
 
+const tenantConfigMarker = "heimdall-tenant-config-dir"
+
+var authenticationCacheFiles = []string{
+	"msal_token_cache.json",
+	"msal_http_cache.bin",
+}
+
 // EnsureManagementToken probes whether the current AZURE_CONFIG_DIR session
 // can obtain an access token for the ARM management plane.
 //
@@ -580,7 +587,7 @@ func EnsureManagementToken(tenantID string) error {
 	probe.Stdout = io.Discard
 	probe.Stderr = io.Discard
 	if probe.Run() == nil {
-		return nil // token is valid — nothing to do
+		return syncCurrentAuthenticationCache()
 	}
 
 	// Token refresh failed — most likely AADSTS70043 (Conditional Access
@@ -606,7 +613,10 @@ func EnsureManagementToken(tenantID string) error {
 	reauth.Stdin = os.Stdin
 	reauth.Stdout = os.Stdout
 	reauth.Stderr = os.Stderr
-	return reauth.Run()
+	if err := reauth.Run(); err != nil {
+		return err
+	}
+	return syncCurrentAuthenticationCache()
 }
 
 // EnsureAksToken probes whether the current AZURE_CONFIG_DIR session can obtain
@@ -631,7 +641,7 @@ func EnsureAksToken(tenantID string) error {
 	probe.Stdout = io.Discard
 	probe.Stderr = io.Discard
 	if probe.Run() == nil {
-		return nil // token is valid — nothing to do
+		return syncCurrentAuthenticationCache()
 	}
 
 	// Token invalid or CAP MFA expired — trigger interactive re-auth.
@@ -650,7 +660,10 @@ func EnsureAksToken(tenantID string) error {
 	reauth.Stdin = os.Stdin
 	reauth.Stdout = os.Stdout
 	reauth.Stderr = os.Stderr
-	return reauth.Run()
+	if err := reauth.Run(); err != nil {
+		return err
+	}
+	return syncCurrentAuthenticationCache()
 }
 
 func GenAksKubeConfig() {
@@ -923,6 +936,9 @@ func CreateShellConfigDir(tenantDir string) (string, error) {
 
 	if _, err := os.Stat(shellDir); err == nil {
 		// Already exists for this shell session — reuse as-is.
+		if err := os.WriteFile(filepath.Join(shellDir, tenantConfigMarker), []byte(tenantDir), 0600); err != nil {
+			return "", fmt.Errorf("write tenant config marker: %w", err)
+		}
 		return shellDir, nil
 	}
 
@@ -949,8 +965,52 @@ func CreateShellConfigDir(tenantDir string) (string, error) {
 			return "", fmt.Errorf("write %s: %w", dst, err)
 		}
 	}
+	if err := os.WriteFile(filepath.Join(shellDir, tenantConfigMarker), []byte(tenantDir), 0600); err != nil {
+		return "", fmt.Errorf("write tenant config marker: %w", err)
+	}
 
 	return shellDir, nil
+}
+
+// syncCurrentAuthenticationCache persists Azure CLI's refreshed MSAL cache from
+// a shell-private directory. azureProfile.json is deliberately excluded so each
+// shell retains its own active subscription.
+func syncCurrentAuthenticationCache() error {
+	shellDir := os.Getenv("AZURE_CONFIG_DIR")
+	if shellDir == "" {
+		return nil
+	}
+
+	tenantDirBytes, err := os.ReadFile(filepath.Join(shellDir, tenantConfigMarker))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read tenant config marker: %w", err)
+	}
+	tenantDir := strings.TrimSpace(string(tenantDirBytes))
+	if tenantDir == "" {
+		return fmt.Errorf("tenant config marker is empty")
+	}
+
+	return syncAuthenticationCache(shellDir, tenantDir)
+}
+
+func syncAuthenticationCache(sourceDir, destinationDir string) error {
+	for _, name := range authenticationCacheFiles {
+		source := filepath.Join(sourceDir, name)
+		data, err := os.ReadFile(source)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("read %s: %w", source, err)
+		}
+		if err := os.WriteFile(filepath.Join(destinationDir, name), data, 0600); err != nil {
+			return fmt.Errorf("write authentication cache %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // THIS MAY CHANGE THE OTHER VERSION IsAzSessionValid

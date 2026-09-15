@@ -75,12 +75,12 @@ type AWSAccount struct {
 	AccountStatus string `json:"accountStatus"`
 }
 
-// triggerSsoLoginCmd runs an `aws sso login --no-browser` command built from
-// the provided extra args (e.g. "--sso-session", name or "--profile", name).
-// It intercepts the verification URL and the 8-digit user code from stderr and
-// displays them in a bordered box, then waits for the command to finish.
+// triggerSsoLoginCmd runs an `aws sso login` command built from the provided
+// extra args (e.g. "--sso-session", name or "--profile", name). AWS CLI opens
+// the browser when available; Heimdall also displays its verification URL and
+// user code as a fallback for headless environments.
 func triggerSsoLoginCmd(extraArgs ...string) {
-	args := append([]string{"sso", "login", "--no-browser"}, extraArgs...)
+	args := append([]string{"sso", "login"}, extraArgs...)
 	cmd := exec.Command("aws", args...)
 
 	cmd.Stdin = os.Stdin
@@ -562,7 +562,8 @@ func SanitizeAwsConfig() (bool, error) {
 	sessionURLs := map[string]string{} // sessionName -> sso_start_url
 	sessionRegions := map[string]string{}
 	var currentSection string
-	for _, line := range strings.Split(pass1.String(), "\n") {
+	pass1Lines := strings.Split(strings.TrimSuffix(pass1.String(), "\n"), "\n")
+	for _, line := range pass1Lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[sso-session ") && strings.HasSuffix(trimmed, "]") {
 			currentSection = strings.TrimSuffix(strings.TrimPrefix(trimmed, "[sso-session "), "]")
@@ -589,7 +590,7 @@ func SanitizeAwsConfig() (bool, error) {
 	var pass3 strings.Builder
 	currentSection = ""
 	currentSessionRef := ""
-	for _, line := range strings.Split(pass1.String(), "\n") {
+	for _, line := range pass1Lines {
 		trimmed := strings.TrimSpace(line)
 
 		if strings.HasPrefix(trimmed, "[profile ") && strings.HasSuffix(trimmed, "]") {
