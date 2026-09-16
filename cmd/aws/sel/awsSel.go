@@ -9,7 +9,7 @@ import (
 var AwsSelCmd = &cobra.Command{
 	Use:   "select [profile]",
 	Short: "Select an AWS profile and ensure its session is valid",
-	Long:  "Pick an AWS profile via fzf, validate (and refresh if needed) its SSO session, then export AWS_PROFILE to the calling shell.",
+	Long:  "Pick an AWS profile interactively, validate (and refresh if needed) its SSO session, then export AWS_PROFILE to the calling shell.",
 	Run: func(cmd *cobra.Command, args []string) {
 		aws.AwsGetSunny()
 

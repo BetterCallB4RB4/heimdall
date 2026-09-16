@@ -13,10 +13,10 @@ import (
 var AzSelectCmd = &cobra.Command{
 	Use:   "select [subscription]",
 	Short: "Select an Azure subscription (reuse or refresh session as needed)",
-	Long: `Pick an Azure subscription via fzf.
+	Long: `Pick an Azure subscription interactively.
 
 Three cases are handled automatically:
-  a) No AZURE_CONFIG_DIR set  — reuses an existing per-tenant session on disk (fzf picker if multiple), or triggers a full browser login if none found.
+  a) No AZURE_CONFIG_DIR set  — reuses an existing per-tenant session on disk (interactive picker if multiple), or triggers a full browser login if none found.
   b) AZURE_CONFIG_DIR set but session expired — re-triggers browser login.
   c) AZURE_CONFIG_DIR set and valid — goes straight to the subscription picker.`,
 	Run: func(cmd *cobra.Command, args []string) {
@@ -83,7 +83,7 @@ Three cases are handled automatically:
 			}
 		}
 
-		// 3. Pick and set subscription via fzf (or match the CLI arg).
+		// 3. Pick and set subscription interactively (or match the CLI arg).
 		if len(args) > 0 {
 			subs, err := azure.ListAzureSubscriptionsByTenant(tenantID)
 			if err != nil {

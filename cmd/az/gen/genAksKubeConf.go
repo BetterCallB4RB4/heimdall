@@ -8,7 +8,7 @@ import (
 var GenAksKubeConfCmd = &cobra.Command{
 	Use:   "kubeConf",
 	Short: "Write a kubeconfig for an AKS cluster",
-	Long:  "Lists AKS clusters in the active subscription, presents an fzf picker, then runs az aks get-credentials and kubelogin conversion.",
+	Long:  "Lists AKS clusters in the active subscription, presents an interactive picker, then runs az aks get-credentials and kubelogin conversion.",
 	Run: func(cmd *cobra.Command, args []string) {
 		azure.GenAksKubeConfig()
 	},

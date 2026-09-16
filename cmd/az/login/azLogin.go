@@ -10,15 +10,15 @@ import (
 var AzLoginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Authenticate with Azure and select a subscription",
-	Long:  "Run browser SSO login, pick a tenant via fzf, then pick a subscription. Exports AZURE_CONFIG_DIR scoped to this shell.",
+	Long:  "Run browser SSO login, pick a tenant interactively, then pick a subscription. Exports AZURE_CONFIG_DIR scoped to this shell.",
 	Run: func(cmd *cobra.Command, args []string) {
-		// Step 1: browser auth (if needed) → fzf tenant picker → per-tenant login.
+		// Step 1: browser auth (if needed) → tenant picker → per-tenant login.
 		if err := azure.TriggerSSOLoginAzure(); err != nil {
 			ui.Error("Login failed: %v", err)
 			return
 		}
 
-		// Step 2: fzf subscription picker within the active tenant.
+		// Step 2: subscription picker within the active tenant.
 		tenantID := azure.GetCurrentTenantID()
 		if tenantID == "" {
 			ui.Error("No tenant active after login.")

@@ -10,12 +10,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/BetterCallB4RB4/heimdall/pkg/config"
 	"github.com/BetterCallB4RB4/heimdall/pkg/ui"
 	"github.com/BetterCallB4RB4/heimdall/pkg/utils"
 	"gopkg.in/ini.v1"
@@ -77,12 +75,12 @@ type AWSAccount struct {
 	AccountStatus string `json:"accountStatus"`
 }
 
-// triggerSsoLoginCmd runs an `aws sso login --no-browser` command built from
-// the provided extra args (e.g. "--sso-session", name or "--profile", name).
-// It intercepts the verification URL and the 8-digit user code from stderr and
-// displays them in a bordered box, then waits for the command to finish.
+// triggerSsoLoginCmd runs an `aws sso login` command built from the provided
+// extra args (e.g. "--sso-session", name or "--profile", name). AWS CLI opens
+// the browser when available; Heimdall also displays its verification URL and
+// user code as a fallback for headless environments.
 func triggerSsoLoginCmd(extraArgs ...string) {
-	args := append([]string{"sso", "login", "--no-browser"}, extraArgs...)
+	args := append([]string{"sso", "login"}, extraArgs...)
 	cmd := exec.Command("aws", args...)
 
 	cmd.Stdin = os.Stdin
@@ -564,7 +562,8 @@ func SanitizeAwsConfig() (bool, error) {
 	sessionURLs := map[string]string{} // sessionName -> sso_start_url
 	sessionRegions := map[string]string{}
 	var currentSection string
-	for _, line := range strings.Split(pass1.String(), "\n") {
+	pass1Lines := strings.Split(strings.TrimSuffix(pass1.String(), "\n"), "\n")
+	for _, line := range pass1Lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[sso-session ") && strings.HasSuffix(trimmed, "]") {
 			currentSection = strings.TrimSuffix(strings.TrimPrefix(trimmed, "[sso-session "), "]")
@@ -591,7 +590,7 @@ func SanitizeAwsConfig() (bool, error) {
 	var pass3 strings.Builder
 	currentSection = ""
 	currentSessionRef := ""
-	for _, line := range strings.Split(pass1.String(), "\n") {
+	for _, line := range pass1Lines {
 		trimmed := strings.TrimSpace(line)
 
 		if strings.HasPrefix(trimmed, "[profile ") && strings.HasSuffix(trimmed, "]") {
@@ -735,24 +734,12 @@ func GenerateAwsSsoProfiles(accounts []AWSAccount, ssoSessionName string) {
 			}
 		}
 
-		customRegion, err := getAwsRegionFromAccountName(acc.AccountName)
-		if err != nil {
-			ui.Warning("Could not determine region for account '%s': %v", acc.AccountName, err)
-			ui.Info("Please select the AWS region manually:")
-			customRegion = ui.GetSelection(awsRegions...)
-			if customRegion == "" || !isAwsRegion(customRegion) {
-				ui.Warning("Region not recognised, defaulting to eu-central-1")
-				customRegion = "eu-central-1"
-			}
-		}
-
 		// Set the keys (this will overwrite existing keys or append new ones)
 		section.Key("sso_session").SetValue(ssoSessionName)
 		section.Key("sso_start_url").SetValue(startURL)
 		section.Key("sso_region").SetValue(ssoRegion)
 		section.Key("sso_account_id").SetValue(acc.AccountID)
 		section.Key("sso_role_name").SetValue("AdministratorAccess")
-		section.Key("region").SetValue(customRegion)
 		section.Key("output").SetValue("json")
 	}
 	// Save the file
@@ -770,119 +757,6 @@ func SelectAwsProfile(profileName string) {
 	utils.AddScriptEntry(command)
 }
 
-// GetAwsAccountRegion fetches the region using the 'aws configure' command.
-func GetAwsAccountRegion(profileName string) (string, error) {
-	// Validation: Prevent empty or 'default' if that is your specific requirement
-	if profileName == "" || profileName == "default" {
-		return "", fmt.Errorf("a specific named profile is required")
-	}
-
-	// Prepare the command: aws configure get region --profile <profileName>
-	cmd := exec.Command("aws", "configure", "get", "region", "--profile", profileName)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	if err != nil {
-		// If the profile doesn't exist, the AWS CLI returns a non-zero exit code
-		return "", fmt.Errorf("failed to get region for profile '%s': %s", profileName, strings.TrimSpace(stderr.String()))
-	}
-
-	// Clean up the output (remove newline characters)
-	region := strings.TrimSpace(stdout.String())
-
-	if region == "" {
-		return "", fmt.Errorf("region is empty for profile '%s'", profileName)
-	}
-
-	return region, nil
-}
-
-func GenEksKubeConfig() {
-	profile := os.Getenv("AWS_PROFILE")
-
-	if profile == "" {
-		ui.Fatal(fmt.Errorf("AWS_PROFILE is not set"))
-		return
-	}
-
-	region, err := GetAwsAccountRegion(profile)
-	if err != nil || region == "" {
-		ui.Warning("Could not determine region for profile '%s': %v", profile, err)
-		ui.Info("Please select the AWS region manually:")
-		customRegion := ui.GetSelection(awsRegions...)
-		if customRegion == "" || !isAwsRegion(customRegion) {
-			ui.Warning("Region not recognised, defaulting to eu-central-1")
-		}
-	}
-
-	ui.Info("Targeting region: %s", region)
-
-	// List Clusters using an Anonymous Struct for JSON parsing
-	listCmd := exec.Command("aws", "eks", "list-clusters", "--region", region, "--profile", profile, "--output", "json")
-	listOutput, err := listCmd.Output()
-	if err != nil {
-		ui.Error("Failed to list EKS clusters: %v", err)
-		return
-	}
-
-	// Defining and unmarshaling into an anonymous struct
-	var clusterData struct {
-		Clusters []string `json:"clusters"`
-	}
-
-	if err := json.Unmarshal(listOutput, &clusterData); err != nil {
-		ui.Error("Failed to parse cluster list: %v", err)
-		return
-	}
-
-	clusters := clusterData.Clusters
-	if len(clusters) == 0 {
-		ui.Info("No EKS clusters found.")
-		return
-	}
-
-	var selectedCluster string
-
-	// Logic to determine which cluster to process
-	if len(clusters) > 1 {
-		ui.Info("Multiple clusters found. Please select one:")
-		selectedCluster = ui.GetSelection(clusters...)
-
-		if selectedCluster == "" {
-			ui.Info("No cluster selected.")
-			return
-		}
-	} else {
-		// Only one cluster, select it automatically
-		selectedCluster = clusters[0]
-	}
-
-	// Update Kubeconfig for the selected cluster
-	s := ui.StartSpinner(fmt.Sprintf("Writing kubeconfig for %s...", selectedCluster))
-
-	kubeconfig := fmt.Sprintf("~/.kube/clusters/aws/%s", selectedCluster)
-
-	updateCmd := exec.Command(
-		"aws", "eks", "update-kubeconfig",
-		"--region", region,
-		"--name", selectedCluster,
-		"--kubeconfig", kubeconfig,
-		"--alias", selectedCluster,
-	)
-
-	if err := updateCmd.Run(); err != nil {
-		s.Fail(fmt.Sprintf("Failed to update kubeconfig: %v", err))
-	} else {
-		s.Stop()
-	}
-
-	parentCommand := fmt.Sprintf("export KUBECONFIG=%s", kubeconfig)
-	utils.AddScriptEntry(parentCommand)
-}
-
 // ClusterEntry pairs a cluster name with its region for display and selection.
 type ClusterEntry struct {
 	Region  string
@@ -890,7 +764,7 @@ type ClusterEntry struct {
 }
 
 // GenEksKubeConfigAllRegions lists EKS clusters across all AWS regions in parallel,
-// presents them in a single fzf picker as "region/cluster", then writes the
+// presents them in a single interactive picker as "region/cluster", then writes the
 // kubeconfig for the selected cluster.
 func GenEksKubeConfigAllRegions(profile string) {
 	if profile == "" {
@@ -918,7 +792,7 @@ func GenEksKubeConfigAllRegions(profile string) {
 		return
 	}
 
-	// Build the fzf input labels and a lookup map.
+	// Build the picker labels and a lookup map.
 	labels := make([]string, 0, len(entries))
 	labelToEntry := make(map[string]ClusterEntry, len(entries))
 	for _, e := range entries {
@@ -1141,88 +1015,12 @@ func UpdateProfileLogin() {
 }
 
 func LoginAwsCalled(selection string) {
-	// If not, trigger the interactive fzf-like selection
+	// If not, trigger the interactive selection.
 	if selection == "" {
 		ssoSessions := ListAwsSsoSessionsName()
 		selection = ui.GetSelection(ssoSessions...)
 	}
 	TriggerAwsSsoLogin(selection)
-}
-
-func getAwsRegionFromAccountName(input string) (string, error) {
-	isoToRegion := map[string]string{
-		// custom region
-		"MI":  "eu-south-1",
-		"IR":  "eu-west-1",
-		"LDN": "eu-central-1",
-		"UK":  "eu-central-1",
-		"OH":  "us-east-2",
-		"HQ":  "us-east-2",
-
-		// standard ISO 3166
-		"US": "us-east-1",
-		"AF": "af-south-1",
-		"HK": "ap-east-1",
-		"IN": "ap-south-1",
-		"ID": "ap-southeast-3",
-		"MY": "ap-southeast-5",
-		"AU": "ap-southeast-2",
-		"NZ": "ap-southeast-6",
-		// "JP": "ap-northeast-1",
-		// "KR": "ap-northeast-2",
-		"SG": "ap-southeast-1",
-		"TW": "ap-east-2",
-		"TH": "ap-southeast-7",
-		"CA": "ca-central-1",
-		"DE": "eu-central-1",
-		"IE": "eu-west-1",
-		"GB": "eu-west-2",
-		"IT": "eu-south-1",
-		"FR": "eu-west-3",
-		"ES": "eu-south-2",
-		"SE": "eu-north-1",
-		"CH": "eu-central-2",
-		"IL": "il-central-1",
-		"MX": "mx-central-1",
-		// "BH": "me-south-1",
-		"AE": "me-central-1",
-		"BR": "sa-east-1",
-	}
-
-	// Merge user-defined key→region pairs from ~/.config/heimdall.yaml.
-	// User entries take precedence over built-ins, allowing overrides.
-	cfg := config.Load()
-	for k, v := range cfg.Aws.ExtraRegions {
-		isoToRegion[strings.ToUpper(strings.TrimSpace(k))] = v
-	}
-
-	// 1. Try key-based matching on each dash-separated token.
-	parts := strings.Split(input, "-")
-	for _, part := range parts {
-		cleanPart := strings.ToUpper(strings.TrimSpace(part))
-		if region, exists := isoToRegion[cleanPart]; exists {
-			return region, nil
-		}
-	}
-
-	// 2. Fall through to user-defined regex rules (evaluated in order).
-	for _, rule := range cfg.Aws.RegionRules {
-		re, err := regexp.Compile(rule.Pattern)
-		if err != nil {
-			// Skip malformed patterns rather than crashing.
-			continue
-		}
-		if re.MatchString(input) {
-			return rule.Region, nil
-		}
-	}
-
-	return "", fmt.Errorf("no AWS region found for input: %s", input)
-}
-
-func isAwsRegion(regionWannaBe string) bool {
-	cleanInput := strings.ToLower(strings.TrimSpace(regionWannaBe))
-	return slices.Contains(awsRegions, cleanInput)
 }
 
 func AwsGetSunny() {
