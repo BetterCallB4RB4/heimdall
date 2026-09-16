@@ -219,6 +219,13 @@ heimdall aws gen kubeConf
 heimdall show
 ```
 
+Omit the profile argument to search generated AWS profiles with the interactive
+fuzzy finder:
+
+```sh
+heimdall aws select
+```
+
 ### Azure
 
 Log in, select a tenant and subscription, then create a kubeconfig for an AKS
@@ -228,6 +235,13 @@ cluster:
 heimdall az login
 heimdall az gen kubeConf
 heimdall show
+```
+
+Omit the subscription argument to search the subscriptions you can access with
+the interactive fuzzy finder:
+
+```sh
+heimdall az select
 ```
 
 ## Command Reference
