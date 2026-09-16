@@ -69,7 +69,8 @@ instructions linked above.
 This repository is private. You must have repository access for release or Go
 module installation.
 
-### Release archive
+<details>
+<summary>Release archive</summary>
 
 Download the archive matching your Linux architecture from
 [Releases](https://github.com/BetterCallB4RB4/heimdall/releases):
@@ -103,7 +104,10 @@ export PATH="$HOME/.local/bin:$PATH"
 Add that line to `~/.bashrc` or `~/.zshrc` if it is not already set. Releases
 include `checksums.txt` for download verification.
 
-### Go install
+</details>
+
+<details>
+<summary>Go install</summary>
 
 Install the latest version from the private module:
 
@@ -114,7 +118,10 @@ go install github.com/BetterCallB4RB4/heimdall@latest
 Go installs the executable into `$(go env GOPATH)/bin`. Ensure that directory
 is on `PATH`.
 
-### Mise
+</details>
+
+<details>
+<summary>Mise</summary>
 
 Install the latest GitHub release through Mise's GitHub backend by adding this
 to your project's `mise.toml` or your global Mise configuration:
@@ -135,7 +142,10 @@ To use a specific release, replace `latest` with its version, for example
 `"0.1.0"`. Mise automatically selects the matching Linux `amd64` or `arm64`
 release archive.
 
-### Local checkout
+</details>
+
+<details>
+<summary>Local checkout</summary>
 
 From a cloned repository, install the current source into `$(go env GOPATH)/bin`:
 
@@ -149,6 +159,8 @@ To run without installing it:
 ```sh
 go run . --help
 ```
+
+</details>
 
 ## Shell Integration
 
